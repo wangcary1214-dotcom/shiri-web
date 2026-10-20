@@ -1,0 +1,13 @@
+const CACHE = 'shiri-web-1.0.0-r2';
+const FILES = ['./','./index.html','./styles.css','./core.mjs','./app.mjs','./manifest.webmanifest','./assets/icon.svg','./assets/icon-192.png','./assets/icon-512.png','./assets/pet-dialogue.json',...Array.from({length:71},(_,i)=>`./assets/pet/cel-${String(i).padStart(3,'0')}.png`)];
+self.addEventListener('install',event=>event.waitUntil((async()=>{const cache=await caches.open(CACHE);await cache.addAll(FILES.map(path=>new Request(new URL(path,self.location.href),{cache:'reload'})));await self.skipWaiting();})()));
+self.addEventListener('activate',event=>event.waitUntil((async()=>{for(const name of await caches.keys())if(name.startsWith('shiri-web-')&&name!==CACHE)await caches.delete(name);await self.clients.claim();for(const client of await self.clients.matchAll())client.postMessage({type:'OFFLINE_READY'});})()));
+self.addEventListener('message',event=>{if(event.data?.type==='CHECK_READY')event.waitUntil((async()=>{const cache=await caches.open(CACHE);const ready=(await Promise.all(FILES.map(path=>cache.match(new URL(path,self.location.href))))).every(Boolean);if(ready)event.source?.postMessage({type:'OFFLINE_READY'});})());});
+self.addEventListener('fetch',event=>{
+  if(event.request.method!=='GET'||new URL(event.request.url).origin!==self.location.origin)return;
+  const path=new URL(event.request.url).pathname;
+  // Only cache this app's known public files, never login responses or user data.
+  const known=new Set(FILES.map(file=>new URL(file,self.location.href).pathname));
+  if(event.request.mode==='navigate')event.respondWith((async()=>{try{const response=await fetch(event.request);if(response.ok)return response;return(await caches.match(new URL('./index.html',self.location.href)))||response;}catch{return(await caches.match(new URL('./index.html',self.location.href)))||new Response('请联网打开一次拾日，以准备离线文件。',{status:503,headers:{'Content-Type':'text/plain;charset=utf-8'}});}})());
+  else if(known.has(path))event.respondWith((async()=>{const cache=await caches.open(CACHE);return(await cache.match(event.request))||fetch(event.request);})());
+});

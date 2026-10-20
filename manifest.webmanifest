@@ -1,0 +1,16 @@
+{
+  "id": "./",
+  "name": "拾日 · 与大肥鱼一起",
+  "short_name": "拾日",
+  "description": "日程、远方计划与专注时光。和大肥鱼一起，慢慢向前。",
+  "lang": "zh-CN",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f8f9f5",
+  "theme_color": "#356a51",
+  "icons": [
+    {"src": "./assets/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+    {"src": "./assets/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"}
+  ]
+}
