@@ -1,5 +1,5 @@
-import {normalizeEntry, legacyEntries, imageIDs, entryKey} from './journal-model.mjs?v=1.8.0';
-import {uid} from './core.mjs?v=1.8.0';
+import {normalizeEntry, legacyEntries, imageIDs, entryKey} from './journal-model.mjs?v=1.8.0-r2';
+import {uid} from './core.mjs?v=1.8.0-r2';
 
 const PREFIX='shiri.journal.', DB='shiri-journal-v1';
 const asPromise=req=>new Promise((resolve,reject)=>{req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);});
@@ -64,6 +64,8 @@ export class JournalStore {
   }
   async migrateLegacy(state){
     const sources=[state?.diary,state?.diaries];
+    // When IndexedDB becomes available later, copy fallback text entries without deleting them.
+    for(let i=0;i<localStorage.length;i++){const key=localStorage.key(i);if(key?.startsWith(PREFIX+'entry.'))sources.push([normalizeEntry(JSON.parse(localStorage.getItem(key)))]);}
     for(const key of ['shiri.diary.v1','shiri.diary']){const raw=localStorage.getItem(key);if(raw)sources.push(JSON.parse(raw));}
     const existing=new Map((await this.list()).map(e=>[e.date,e]));
     // Legacy sources are read-only. Commit each record before considering it migrated.

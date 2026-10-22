@@ -1,4 +1,5 @@
 // Shared, DOM-independent task, backup and focus rules.
+import {countdownPreferences} from './countdown-model.mjs?v=1.8.0-r2';
 export const VERSION = 1;
 export const DAY = 86400000;
 const OFFSET = 8 * 3600000;
@@ -141,6 +142,7 @@ export function validate(state) {
   if (!projects.has(f.selectedId)) fail('专注任务选择无效。');
   for (const s of f.segments) if (!s || !projects.has(s.projectId) || !bounded(s.goalId, 200) || !Number.isFinite(s.start) || !Number.isFinite(s.end) || s.start < -62135596800000 || s.end > 253402300799999 || s.start >= s.end) fail('专注时段无效。');
   if (!state.settings || typeof state.settings.petEnabled !== 'boolean' || typeof state.settings.petMotion !== 'boolean' || typeof state.settings.sidebarOpen !== 'boolean') fail('偏好设置无效。');
+  state.settings.countdowns=countdownPreferences(state.settings);
   const s = f.session;
   if(s?.pending && (!Array.isArray(s.pending)||s.pending.length>200000||s.pending.some(p=>!p||p.projectId!==s.projectId||!bounded(p.goalId,200)||!Number.isFinite(p.start)||!Number.isFinite(p.end)||p.start>=p.end)))fail('待完成的专注时段无效。');
   if (s && (!['focus', 'break'].includes(s.phase) || typeof s.running !== 'boolean' || !projects.has(s.projectId) || !bounded(s.id, 200, true) || !bounded(s.goalId, 200) || !Number.isFinite(s.remaining) || s.remaining < 0 || s.remaining > 360 * 60000 || !Number.isFinite(s.deadline) || !Number.isFinite(s.activeFrom) || (s.running && (s.deadline <= 0 || (s.phase === 'focus' && (s.activeFrom <= 0 || s.activeFrom > s.deadline)))))) fail('计时状态无效。');
@@ -165,11 +167,19 @@ export function parseBackup(text, at = Date.now()) {
     state.focus = {focusMinutes: raw.FocusMinutes, breakMinutes: raw.BreakMinutes, selectedId: raw.SelectedId, projects: raw.Projects.map(p => ({id: p.Id, name: p.Name, color: p.Color, goalId: p.GoalId || ''})), segments: raw.Segments.map(s => ({id: `${s.ProjectId}-${s.StartTicks}`, sessionId: 'desktop', projectId: s.ProjectId, goalId: s.GoalId || '', start: fromTicks(s.StartTicks), end: fromTicks(s.EndTicks)})), session: null};
     validate(state); return {type: 'focus', state};
   }
-  fail('请选择拾日网页版备份，或 Windows 版 tasks.json / focus.json。');
+  if(raw?.Version===1&&(Array.isArray(raw.Countdowns)||raw.CountdownDate!=null||typeof raw.PetEnabled==='boolean')){
+    const state=fresh(at);state.settings.countdowns=countdownPreferences(raw);return {type:'settings',state};
+  }
+  fail('请选择拾日网页版备份，或 Windows 版 tasks.json / focus.json / settings.json。');
 }
 export function mergeBackup(current, imported) {
   const next = clone(current), incoming = imported.state;
   const addUnique = (target, source) => {const ids = new Set(target.map(x => x.id)); for (const x of source) if (!ids.has(x.id)) {target.push(clone(x)); ids.add(x.id);}};
+  if(imported.type==='settings'||imported.type==='web'){
+    next.settings.countdowns=countdownPreferences(next.settings);
+    addUnique(next.settings.countdowns,countdownPreferences(incoming.settings));
+    if(imported.type==='settings')return validate(next);
+  }
   if (imported.type !== 'focus') {addUnique(next.goals, incoming.goals); addUnique(next.tasks, incoming.tasks);}
   if (imported.type !== 'tasks') {
     addUnique(next.focus.projects, incoming.focus.projects);

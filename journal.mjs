@@ -1,6 +1,6 @@
-import {bjDate,addDays,validDate,clone} from './core.mjs?v=1.8.0';
-import {LIMITS,emptyEntry,normalizeEntry,legacyEntries,textBlocks,plainText,imageIDs,entryKey,isEmpty,escapeHTML as esc,EntryHistory,newAssetID,standaloneHTML} from './journal-model.mjs?v=1.8.0';
-import {JournalStore,blobDataURL} from './journal-store.mjs?v=1.8.0';
+import {bjDate,addDays,validDate,clone} from './core.mjs?v=1.8.0-r2';
+import {LIMITS,emptyEntry,normalizeEntry,legacyEntries,textBlocks,plainText,imageIDs,entryKey,isEmpty,escapeHTML as esc,EntryHistory,newAssetID,standaloneHTML} from './journal-model.mjs?v=1.8.0-r2';
+import {JournalStore,blobDataURL} from './journal-store.mjs?v=1.8.0-r2';
 
 const moods=['','晴朗','平静','充实','有点累','有心事'];
 const download=(content,name,type)=>{const url=URL.createObjectURL(new Blob([content],{type})),a=document.createElement('a');a.href=url;a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);};
@@ -26,11 +26,13 @@ export function captureEditor(root){
 
 export class Journal {
   constructor(host,{legacyState,notify,onDate,onCount}){
+    this.legacyState=legacyState;
     this.host=host;this.notify=notify;this.onDate=onDate;this.onCount=onCount;
     this.store=new JournalStore();this.entries=new Map();this.sessions=new Map();this.urls=new Map();this.loading=false;this.inserting=false;this.saving=null;this.timer=null;this.selection=null;this.active=null;this.initError='';
     host.innerHTML=`<article class="journal-card" aria-label="每日手记"><div class="journal-dates"><button type="button" data-journal-action="previous" aria-label="前一天">‹</button><input type="date" id="journal-date" aria-label="手记日期" min="0001-01-01" max="9999-12-31"><button type="button" data-journal-action="next" aria-label="后一天">›</button><span id="journal-weekday"></span><button type="button" class="journal-history-button" data-journal-action="history" aria-expanded="false">回看 <span id="journal-total">0 篇</span></button></div><section id="journal-history" class="journal-history" aria-label="最近 30 篇手记" hidden></section><div class="journal-title-row"><input id="journal-title" aria-label="日记标题" maxlength="80" placeholder="给今天起个名字…" autocomplete="off"><select id="journal-mood" aria-label="此刻心情">${moods.map(v=>`<option value="${v}">${v||'此刻心情'}</option>`).join('')}</select></div><div class="journal-toolbar" role="toolbar" aria-label="手记编辑工具"><button class="journal-insert" type="button" data-journal-action="images">＋ 图片</button><button type="button" data-journal-action="bold" aria-label="加粗" title="加粗 · Ctrl / ⌘ B"><b>B</b></button><button type="button" data-journal-action="italic" aria-label="斜体" title="斜体 · Ctrl / ⌘ I"><i>I</i></button><button type="button" data-journal-action="undo" aria-label="撤销" title="撤销 · Ctrl / ⌘ Z">↶</button><button type="button" data-journal-action="redo" aria-label="重做" title="重做 · Ctrl / ⌘ Shift Z">↷</button><span class="journal-toolbar-note">文字与照片，都留在这一天</span></div><div class="journal-writing"><div id="journal-editor" class="journal-editor" contenteditable="true" role="textbox" aria-multiline="true" aria-label="日记正文" spellcheck="false" data-placeholder="今天，有什么想记下来的？&#10;&#10;写几句话，或放一张喜欢的照片。"></div></div><footer class="journal-footer"><div><p id="journal-status" role="status" aria-live="polite">正在打开手记…</p><small id="journal-count">0 字</small></div><div class="journal-footer-actions"><button type="button" data-journal-action="export-menu" aria-expanded="false">导出</button><button type="button" data-journal-action="save" class="journal-save">保存</button></div></footer><div id="journal-export-menu" class="journal-export-menu" hidden><button type="button" data-journal-action="export-html">图文 HTML（包含图片）</button><button type="button" data-journal-action="export-text">纯文本 TXT</button><button type="button" data-journal-action="import-legacy">导入旧版 diary.json</button></div><p id="journal-error" class="journal-error" role="alert" hidden></p><input type="file" id="journal-images" accept="image/png,image/jpeg,image/webp,image/gif,image/bmp,.png,.jpg,.jpeg,.webp,.gif,.bmp" multiple hidden><input type="file" id="journal-import" accept=".json,application/json" hidden></article><p class="journal-help">自动保存 · Ctrl / ⌘ S 保存 · 支持粘贴截图、拖入图片<br><span>每篇最多 30 张图片、10 万字；图片最长边缩至 1600 像素。PNG / JPEG / WebP / GIF / BMP 按浏览器解码，GIF 仅保留静态首帧；不支持 TIFF / HEIC，请先转为 PNG 或 JPEG。</span></p>`;
     this.$=s=>host.querySelector(s);this.editor=this.$('#journal-editor');
     this.viewer=document.createElement('dialog');this.viewer.id='journal-image-viewer';this.viewer.className='journal-image-viewer';this.viewer.innerHTML='<header><h2>日记图片</h2><button type="button" aria-label="关闭图片">×</button></header><img alt="放大的日记图片">';document.body.append(this.viewer);this.viewer.querySelector('button').onclick=()=>this.viewer.close();
+    const retry=document.createElement('button');retry.type='button';retry.id='journal-retry';retry.className='text-button';retry.dataset.journalAction='retry';retry.textContent='重试读取日记';retry.hidden=true;this.$('.journal-card').append(retry);
     this.bind();
     this.ready=this.initialize(legacyState);
   }
@@ -38,6 +40,7 @@ export class Journal {
     try{for(const e of await this.store.migrateLegacy(state))this.entries.set(e.date,e);}catch(error){this.initError='旧日记读取或迁移未完成，原记录未修改：'+error.message;try{for(const e of await this.store.list())this.entries.set(e.date,e);}catch(e){this.initError+=' '+e.message;}}
     try{this.recoveries=this.store.drafts();}catch{this.recoveries=[];}
     this.updateHistory();
+    this.$('#journal-retry').hidden=!this.initError;
   }
   bind(){
     this.host.addEventListener('click',async event=>{
@@ -56,6 +59,7 @@ export class Journal {
         if(action==='export-menu'){const menu=this.$('#journal-export-menu');menu.hidden=!menu.hidden;button.setAttribute('aria-expanded',String(!menu.hidden));}
         if(action==='export-html'||action==='export-text')await this.export(action==='export-html');
         if(action==='import-legacy')this.$('#journal-import').click();
+        if(action==='retry')await this.retryReading();
       }catch(error){this.error(error.message);}
     });
     this.host.addEventListener('pointerdown',e=>{if(e.target.closest('.journal-toolbar button')){this.rememberSelection();if(e.pointerType==='mouse')e.preventDefault();}});
@@ -79,6 +83,11 @@ export class Journal {
     this.editor.addEventListener('dragleave',()=>this.editor.classList.remove('dragging'));
     this.editor.addEventListener('drop',async e=>{e.preventDefault();this.editor.classList.remove('dragging');const files=[...e.dataTransfer.files];let range=document.caretRangeFromPoint?.(e.clientX,e.clientY);if(!range&&document.caretPositionFromPoint){const p=document.caretPositionFromPoint(e.clientX,e.clientY);if(p){range=document.createRange();range.setStart(p.offsetNode,p.offset);range.collapse(true);}}if(range&&this.editor.contains(range.startContainer)){const sel=getSelection();sel.removeAllRanges();sel.addRange(range);}if(files.length)await this.insertImages(files);else this.error('请拖入本机图片文件。');});
     this.editor.addEventListener('beforeinput',e=>{if(e.inputType==='historyUndo'||e.inputType==='historyRedo'){e.preventDefault();this.undo(e.inputType==='historyRedo');}});
+    this.editor.addEventListener('dblclick',e=>{const image=e.target.closest('[data-image-id]');if(image)image.querySelector('[data-zoom-image]').click();});
+    this.imageMenu=document.createElement('div');this.imageMenu.className='countdown-context';this.imageMenu.id='journal-image-context';this.imageMenu.hidden=true;this.imageMenu.innerHTML='<button type="button" data-image-menu="zoom">放大图片</button><button type="button" data-image-menu="remove">移除此图片</button>';document.body.append(this.imageMenu);
+    this.editor.addEventListener('contextmenu',e=>{const token=e.target.closest('[data-image-id]');if(!token)return;e.preventDefault();this.menuImage=token;this.imageMenu.hidden=false;this.imageMenu.style.left=Math.min(e.clientX,innerWidth-155)+'px';this.imageMenu.style.top=Math.min(e.clientY,innerHeight-90)+'px';this.imageMenu.querySelector('button').focus();});
+    document.addEventListener('click',e=>{const button=e.target.closest('[data-image-menu]');if(button&&this.menuImage?.isConnected){this.menuImage.querySelector(button.dataset.imageMenu==='zoom'?'[data-zoom-image]':'[data-remove-image]').click();}this.imageMenu.hidden=true;});
+    document.addEventListener('keydown',e=>{if(e.key==='Escape')this.imageMenu.hidden=true;});document.addEventListener('scroll',()=>this.imageMenu.hidden=true,true);
     this.host.addEventListener('keydown',e=>{
       if(e.isComposing)return;
       if((e.ctrlKey||e.metaKey)&&['s','z','y'].includes(e.key.toLowerCase())){e.preventDefault();e.stopPropagation();const key=e.key.toLowerCase();if(key==='s')this.save(true);else this.undo(key==='y'||e.shiftKey);}
@@ -89,6 +98,7 @@ export class Journal {
     document.addEventListener('visibilitychange',()=>{if(document.hidden){this.checkpoint();this.save();}});
   }
   async show(date){await this.ready;if(this.active?.date!==date)await this.open(date);else this.updateStatus();}
+  async retryReading(){if(!await this.leave())return;const date=this.active?.date;this.initError='';this.store.db?.close();this.store.db=null;this.store.fallback=false;this.store.opening=null;await this.initialize(this.legacyState);if(this.initError){this.error(this.initError);return;}this.sessions.clear();this.active=null;if(date)await this.open(date);this.$('#journal-retry').hidden=true;this.notify('日记已重新读取，原来源保留。');}
   async go(date){if(!validDate(date)||date===this.active?.date)return;const ok=await this.open(date);if(ok){this.$('#journal-history').hidden=true;this.$('[data-journal-action="history"]').setAttribute('aria-expanded','false');this.onDate(date);}}
   async open(date){
     if(!validDate(date)||this.loading)return false;

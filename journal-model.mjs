@@ -1,4 +1,4 @@
-import {validDate, uid} from './core.mjs?v=1.8.0';
+import {validDate, uid} from './core.mjs?v=1.8.0-r2';
 
 export const LIMITS = {text:100000, images:30, edge:1600, bytes:25*1024*1024, pixels:50000000};
 export const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
