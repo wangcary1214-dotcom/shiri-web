@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="shiri-version" content="1.8.0">
   <meta name="theme-color" content="#356a51">
   <meta name="description" content="拾日，与大肥鱼一起安排日程、走向远方、留一段专注时光。支持离线使用的个人日程工具。">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -10,7 +11,8 @@
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="icon" href="./assets/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="./assets/icon-192.png">
-  <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./styles.css?v=1.8.0">
+  <link rel="stylesheet" href="./journal.css?v=1.8.0">
   <title>拾日 · 与大肥鱼一起</title>
 </head>
 <body>
@@ -22,8 +24,8 @@
       <a class="brand" href="#today" aria-label="拾日首页"><span class="brand-mark">拾</span><span><strong>拾日</strong><small>让每一天，井然有序</small></span></a>
       <button class="primary new-task" data-action="new-task"><span data-icon="plus"></span>新建任务</button>
       <p class="eyebrow workspace-label">工作空间</p>
-      <nav class="workspace"><button class="nav-item active" data-view="today"><span data-icon="sun"></span><span>我的一天</span><small id="today-count">0</small></button><button class="nav-item" data-view="goals"><span data-icon="flag"></span><span>远方计划</span><small id="goals-count">0</small></button></nav>
-      <section class="stats-card" aria-labelledby="stats-title"><div class="section-line"><h2 id="stats-title">今日专注</h2><span data-icon="chart"></span></div><p class="stats-period" id="stats-period"></p><div id="focus-pie" class="focus-pie" role="img" aria-label="今日还没有专注记录"><span id="pie-empty">留一点时间<br>给想做的事</span></div><strong class="stats-total" id="stats-total">共 0 分钟</strong><div class="pie-legend" id="pie-legend"></div><p class="fine-print">仅计专注 · 暂停与休息不计入</p></section>
+      <nav class="workspace"><button class="nav-item active" data-view="today"><span data-icon="sun"></span><span>我的一天</span><small id="today-count">0</small></button><button class="nav-item" data-view="goals"><span data-icon="flag"></span><span>远方计划</span><small id="goals-count">0</small></button><button class="nav-item" data-view="journal"><span data-icon="edit"></span><span>日记</span><small id="journal-nav-count">0</small></button></nav>
+      <button type="button" class="stats-card" data-action="open-stats" aria-labelledby="stats-title" title="点击查看今日饼图和一周柱状图"><div class="section-line"><h2 id="stats-title">专注统计</h2><span data-icon="chart"></span></div><p class="stats-period" id="stats-period"></p><div id="focus-pie" class="focus-pie" role="img" aria-label="今日还没有专注记录"><span id="pie-empty">留一点时间<br>给想做的事</span></div><strong class="stats-total" id="stats-total">共 0 分钟</strong><div class="pie-legend" id="pie-legend"></div><p class="fine-print">整轮完成后计入</p></button>
       <div class="nav-bottom"><p class="small-quote">留一点时间，给自己。<small>一步一步，也是在向前。</small></p><div class="nav-tools"><button data-action="backup" title="数据备份与恢复"><span data-icon="download"></span>备份与恢复</button><button data-action="settings" aria-label="软件设置" title="软件设置"><span data-icon="settings"></span></button></div><span class="save-status" id="save-status"><i></i>本机保存 · 正在准备离线</span></div>
     </aside>
     <main class="main-content" id="main-content" tabindex="-1">
@@ -31,6 +33,7 @@
       <div class="view-heading"><div><div class="heading-line"><h1 id="view-title">我的一天</h1><span class="view-tag" id="view-tag">TODAY</span></div><p id="view-description">把重要的事，放进今天。</p></div><button class="soft-button" data-action="return-today" id="return-today">回到今天</button></div>
       <section class="week-strip" id="week-strip" aria-label="按周查看任务"></section>
       <section id="content" aria-live="polite"></section>
+      <section id="journal-host" hidden></section>
       <footer class="content-footer"><span id="content-hint">做一件小事，也是在好好生活。</span><span class="desktop-only">Ctrl / ⌘ + N 新建</span></footer>
     </main>
     <aside class="right-sidebar" id="right-sidebar" aria-label="专注、日历与陪伴">
@@ -49,11 +52,12 @@
   <aside class="pet-dock" id="pet-dock" aria-label="大肥鱼陪伴卡片"><header><strong><span class="pet-status-dot"></span>大肥鱼 <span>· 一直陪着你</span></strong><div class="inline-tools"><button data-action="pet-chat">聊聊</button><button data-action="pet-close" aria-label="暂时隐藏大肥鱼" title="暂时隐藏，返回我的一天时恢复">×</button></div></header><div class="pet-content"><button class="pet-portrait" id="pet-portrait" aria-label="摸摸大肥鱼，聊一句"><canvas id="pet-canvas" width="512" height="512"></canvas></button><p class="pet-speech" id="pet-speech">今天也一起，慢慢向前吧。</p></div><footer><span>点点小鱼，听她说一句</span><button data-action="pet-expressions" aria-label="选择大肥鱼表情" title="选择表情">•••</button></footer><div class="pet-expression-menu" id="pet-expression-menu" hidden><button data-expression="Curious">疑惑 · 嗯？</button><button data-expression="Sulky">小委屈 · 哼</button><button data-expression="Happy">开心 · &gt;&lt;</button></div></aside>
   <button class="pet-reopen" id="pet-reopen" data-action="restore-pet" title="叫大肥鱼出来" aria-label="叫大肥鱼出来" hidden>鱼</button>
   <dialog id="editor-dialog" class="editor-dialog"><form id="editor-form"><header><div><span class="eyebrow" id="editor-kicker">A LITTLE PLAN</span><h2 id="editor-title">新建任务</h2></div><button type="button" class="icon-button" data-action="close-dialog" aria-label="关闭">×</button></header><div id="editor-fields"></div><p class="form-error" id="editor-error" role="alert"></p><footer><button type="button" class="danger text-button" id="editor-delete" hidden>删除</button><span class="spacer"></span><button type="button" class="soft-button" data-action="close-dialog">取消</button><button type="submit" class="primary">保存</button></footer></form></dialog>
-  <dialog id="settings-dialog" class="settings-dialog"><header><div><span class="eyebrow">MAKE YOURSELF AT HOME</span><h2>拾日设置</h2></div><button class="icon-button" data-action="close-dialog" aria-label="关闭">×</button></header><section><h3>大肥鱼陪伴</h3><label class="switch-row"><span>在页面中显示大肥鱼<small>关闭后，各页面与下次打开均保持隐藏。</small></span><input type="checkbox" id="setting-pet"></label><label class="switch-row"><span>点击时播放表情过渡<small>页面切换直接更新表情，不自动播放动作。</small></span><input type="checkbox" id="setting-motion"></label></section><section id="backup-section"><h3>数据备份与恢复</h3><p>数据保存在此设备的浏览器中。电脑和 iPad 分别保存；清除网站数据会移除本机记录，请定期导出备份。</p><div class="settings-actions"><button class="soft-button" data-action="export"><span data-icon="download"></span>导出全部备份</button><button class="soft-button" data-action="import"><span data-icon="upload"></span>导入 / 合并备份</button></div><p class="fine-print">支持网页版完整备份，以及 Windows 版 tasks.json、focus.json。同编号数据保留当前版本；导入不会启动旧计时器。</p><button class="text-button" data-action="clear-example">清除示例任务</button><button class="text-button" data-action="recover-local" id="recover-local">恢复上一次本机保存</button></section><section><h3>安装与离线</h3><p id="install-help">在 iPad Safari 中点“分享 → 添加到主屏幕”。电脑可使用浏览器的安装功能。</p><button class="soft-button" id="install-button" data-action="install" hidden>安装拾日</button><p id="offline-description" class="fine-print">正在准备离线文件。首次请保持联网，直到左下角显示“离线就绪”。</p><p class="fine-print">切换后台或锁屏可能延迟响铃；再次打开时会按实际时间校正计时。关闭页面后的专注时段最多记录到本轮结束。</p></section><footer><span class="fine-print">拾日 Web 1.0 · 和大肥鱼一起，慢慢向前</span><button class="primary" data-action="close-dialog">完成</button></footer></dialog>
+  <dialog id="settings-dialog" class="settings-dialog"><header><div><span class="eyebrow">MAKE YOURSELF AT HOME</span><h2>拾日设置</h2></div><button class="icon-button" data-action="close-dialog" aria-label="关闭">×</button></header><section><h3>大肥鱼陪伴</h3><label class="switch-row"><span>在页面中显示大肥鱼<small>关闭后，各页面与下次打开均保持隐藏。</small></span><input type="checkbox" id="setting-pet"></label><label class="switch-row"><span>点击时播放表情过渡<small>页面切换直接更新表情，不自动播放动作。</small></span><input type="checkbox" id="setting-motion"></label></section><section id="backup-section"><h3>数据备份与恢复</h3><p>数据保存在此设备的浏览器中。电脑和 iPad 分别保存；清除网站数据会移除本机记录，请定期导出备份。</p><div class="settings-actions"><button class="soft-button" data-action="export"><span data-icon="download"></span>导出全部备份</button><button class="soft-button" data-action="import"><span data-icon="upload"></span>导入 / 合并备份</button></div><p class="fine-print">完整备份包含图文手记与图片；也支持 Windows 版 tasks.json、focus.json 和旧版纯文字 diary.json。同编号数据保留当前版本；导入不会启动旧计时器。</p><button class="text-button" data-action="clear-example">清除示例任务</button><button class="text-button" data-action="recover-local" id="recover-local">恢复上一次本机保存</button></section><section><h3>安装与离线</h3><p id="install-help">在 iPad Safari 中点“分享 → 添加到主屏幕”。电脑可使用浏览器的安装功能。</p><button class="soft-button" id="install-button" data-action="install" hidden>安装拾日</button><p id="offline-description" class="fine-print">正在准备离线文件。首次请保持联网，直到左下角显示“离线就绪”。</p><p class="fine-print">切换后台或锁屏可能延迟响铃；再次打开时会按实际时间校正计时。关闭页面后的专注时段最多记录到本轮结束。</p></section><footer><span class="fine-print">拾日 Web 1.8 · 和大肥鱼一起，慢慢向前</span><button class="primary" data-action="close-dialog">完成</button></footer></dialog>
   <dialog id="confirm-dialog" class="confirm-dialog"><h2 id="confirm-title">确认操作</h2><p id="confirm-message"></p><footer><button class="soft-button" id="confirm-no">取消</button><button class="primary" id="confirm-yes">确认</button></footer></dialog>
+  <dialog id="stats-dialog" class="stats-dialog"><header><div><span class="eyebrow">A LITTLE EVERY DAY</span><h2>专注统计</h2></div><button type="button" class="icon-button" data-action="close-dialog" aria-label="关闭专注统计">×</button></header><h3>今日专注</h3><p id="detail-period" class="fine-print"></p><div id="detail-pie" class="focus-pie" role="img" aria-label="今日各项目专注时间分布"></div><strong id="detail-total"></strong><h3 class="stats-week-title">最近一周</h3><div id="week-bars" class="week-bars" aria-label="最近七个统计日的专注时长"></div><p class="fine-print">整轮完成才计入，提前结束不计入，暂停后可继续。统计日为北京时间凌晨 4:00 至次日 4:00。</p></dialog>
   <input type="file" id="import-file" accept=".json,application/json" hidden>
   <div class="toast" id="toast" role="status" hidden><span id="toast-message"></span><button id="toast-undo" hidden>撤销</button></div>
   <noscript><div class="storage-warning">拾日需要启用 JavaScript，才能保存任务与使用计时器。</div></noscript>
-  <script type="module" src="./app.mjs"></script>
+  <script type="module" src="./app.mjs?v=1.8.0"></script>
 </body>
 </html>

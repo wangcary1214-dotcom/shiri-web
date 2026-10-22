@@ -39,6 +39,13 @@ export function toggleTask(state, id, at = Date.now()) {
   if (!state.tasks.some(t => t.series === task.series && t.date === date)) state.tasks.push({...task, id: uid(), date, autoParent: task.id, done: false, completedAt: 0, reminded: false});
 }
 export const currentProject = state => state.focus.projects.find(p => p.id === state.focus.selectedId);
+function preparePending(state){
+  const s=state.focus.session;
+  if(s?.phase==='focus'&&!s.pending){
+    s.pending=state.focus.segments.filter(p=>p.sessionId===s.id);
+    state.focus.segments=state.focus.segments.filter(p=>p.sessionId!==s.id);
+  }
+}
 export function createSession(state) {
   const f = state.focus;
   return {id: uid(), phase: 'focus', running: false, remaining: f.focusMinutes * 60000, deadline: 0, activeFrom: 0, projectId: f.selectedId, goalId: currentProject(state)?.goalId || ''};
@@ -50,9 +57,11 @@ export const remaining = (state, at = Date.now()) => {
 export function capture(state, at) {
   const s = state.focus.session;
   if (!s?.running || s.phase !== 'focus') return;
+  preparePending(state);
   const end = Math.min(at, s.deadline);
   if (end <= s.activeFrom) return;
-  const segments = state.focus.segments, last = segments.at(-1);
+  // Keep an unfinished round with its timer. Only reconcile publishes its segments.
+  const segments = s.pending ||= [], last = segments.at(-1);
   if (last && last.sessionId === s.id && last.end === s.activeFrom && last.projectId === s.projectId && last.goalId === s.goalId) last.end = end;
   else segments.push({id: uid(), sessionId: s.id, projectId: s.projectId, goalId: s.goalId || '', start: s.activeFrom, end});
   s.activeFrom = end;
@@ -63,6 +72,8 @@ export function reconcile(state, at = Date.now()) {
   const ended = s.deadline;
   if (s.phase === 'focus') {
     capture(state, ended);
+    state.focus.segments.push(...(s.pending || []));
+    s.pending = [];
     s.phase = 'break'; s.remaining = state.focus.breakMinutes * 60000; s.deadline = ended + s.remaining; s.activeFrom = 0;
     if (at < s.deadline) return 'focus-finished';
   }
@@ -75,15 +86,16 @@ export function toggleFocus(state, at = Date.now()) {
   if (s.running) {capture(state, at); s.remaining = Math.max(0, s.deadline - at); s.running = false;}
   else {if (s.remaining <= 0) s.remaining = (s.phase === 'focus' ? state.focus.focusMinutes : state.focus.breakMinutes) * 60000; s.deadline = at + s.remaining; s.activeFrom = at; s.running = true;}
 }
-export function resetFocus(state, at = Date.now()) {capture(state, at); state.focus.session = createSession(state);}
+export function resetFocus(state, at = Date.now()) {preparePending(state);capture(state, at); state.focus.session = createSession(state);}
 export function startBreak(state, at = Date.now()) {
+  preparePending(state);
   capture(state, at);
   state.focus.session = {...createSession(state), phase: 'break', running: true, remaining: state.focus.breakMinutes * 60000, deadline: at + state.focus.breakMinutes * 60000, activeFrom: 0};
 }
 export function configureFocus(state, values, at = Date.now()) {
   const {focusMinutes, breakMinutes, name, color, goalId = ''} = values;
   if (!Number.isInteger(focusMinutes) || focusMinutes < 1 || focusMinutes > 360 || !Number.isInteger(breakMinutes) || breakMinutes < 1 || breakMinutes > 120 || !name?.trim() || name.trim().length > 120 || !validColor(color) || (goalId && !state.goals.some(g => g.id === goalId))) throw Error('请检查时长、任务名称、颜色及长期任务归属。');
-  capture(state, at);
+  preparePending(state);capture(state, at);
   const f = state.focus;
   let p = f.projects.find(p => p.name.toLowerCase() === name.trim().toLowerCase());
   if (!p) {p = {id: uid(), name: name.trim(), color, goalId}; f.projects.push(p);}
@@ -91,9 +103,8 @@ export function configureFocus(state, values, at = Date.now()) {
   f.selectedId = p.id; f.focusMinutes = focusMinutes; f.breakMinutes = breakMinutes; f.session = createSession(state);
 }
 export function focusSegments(state, at = Date.now()) {
-  const segments = state.focus.segments;
-  const s = state.focus.session;
-  return s?.running && s.phase === 'focus' && Math.min(at, s.deadline) > s.activeFrom ? [...segments, {projectId: s.projectId, goalId: s.goalId, start: s.activeFrom, end: Math.min(at, s.deadline)}] : segments;
+  const s=state.focus.session;
+  return s?.phase==='focus'?state.focus.segments.filter(p=>p.sessionId!==s.id):state.focus.segments;
 }
 export function statistics(state, at = Date.now()) {
   const start = dayStart(at), end = start + DAY, sums = new Map();
@@ -131,12 +142,13 @@ export function validate(state) {
   for (const s of f.segments) if (!s || !projects.has(s.projectId) || !bounded(s.goalId, 200) || !Number.isFinite(s.start) || !Number.isFinite(s.end) || s.start < -62135596800000 || s.end > 253402300799999 || s.start >= s.end) fail('专注时段无效。');
   if (!state.settings || typeof state.settings.petEnabled !== 'boolean' || typeof state.settings.petMotion !== 'boolean' || typeof state.settings.sidebarOpen !== 'boolean') fail('偏好设置无效。');
   const s = f.session;
+  if(s?.pending && (!Array.isArray(s.pending)||s.pending.length>200000||s.pending.some(p=>!p||p.projectId!==s.projectId||!bounded(p.goalId,200)||!Number.isFinite(p.start)||!Number.isFinite(p.end)||p.start>=p.end)))fail('待完成的专注时段无效。');
   if (s && (!['focus', 'break'].includes(s.phase) || typeof s.running !== 'boolean' || !projects.has(s.projectId) || !bounded(s.id, 200, true) || !bounded(s.goalId, 200) || !Number.isFinite(s.remaining) || s.remaining < 0 || s.remaining > 360 * 60000 || !Number.isFinite(s.deadline) || !Number.isFinite(s.activeFrom) || (s.running && (s.deadline <= 0 || (s.phase === 'focus' && (s.activeFrom <= 0 || s.activeFrom > s.deadline)))))) fail('计时状态无效。');
   return state;
 }
 const fromTicks = ticks => ticks ? Number(ticks) / 10000 - 62135596800000 : 0;
 export function parseBackup(text, at = Date.now()) {
-  if (text.length > 32 * 1024 * 1024) fail('文件超过 32 MB。');
+  if (text.length > 200 * 1024 * 1024) fail('文件超过 200 MB，请分篇导出手记。');
   let raw; try {raw = JSON.parse(text);} catch {fail('文件不是有效的 JSON 备份。');}
   if (raw?.format === 'shiri-web') {
     const state = validate(raw); state.focus.session = null;

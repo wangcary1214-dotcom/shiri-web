@@ -1,4 +1,5 @@
-import {DAY, COLORS, uid, clone, bjDate, bjTime, dayStart, addDays, weekday, validDate, validColor, countdown, duration, newTask, fresh, toggleTask, currentProject, remaining, capture, reconcile, toggleFocus, resetFocus, startBreak, configureFocus, statistics, goalEffort, validate, parseBackup, mergeBackup, POSES, PET_CHAIN, POSE_POSITIONS, petMessage} from './core.mjs';
+import {DAY, COLORS, uid, clone, bjDate, bjTime, dayStart, addDays, weekday, validDate, validColor, countdown, duration, newTask, fresh, toggleTask, currentProject, remaining, capture, reconcile, toggleFocus, resetFocus, startBreak, configureFocus, statistics, goalEffort, validate, parseBackup, mergeBackup, POSES, PET_CHAIN, POSE_POSITIONS, petMessage} from './core.mjs?v=1.8.0';
+import {Journal} from './journal.mjs?v=1.8.0';
 
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
@@ -30,6 +31,7 @@ let petHidden = false, petVariation = 0, petStreak = 0, lastPetClick = 0, lines 
 let images = [], imagesReady = false, petRaf = 0, petPosition = 0, petAnimationId = 0;
 let undoValue = null, undoRevision = '', toastTimer, editorMode = '', editorId = '', installPrompt = null;
 let audio = null, offlineReady = false, lastDay = bjDate(), lastCheckpoint = Date.now(), lastStatsSecond = 0;
+const journal = new Journal($('#journal-host'), {legacyState:state,notify:message=>toast(message),onCount:count=>$('#journal-nav-count').textContent=count,onDate:date=>{selectedDate=date;render();updatePet(false);}});
 function showStorageWarning(message) {const el = $('#storage-warning'); el.textContent = message; el.hidden = false;}
 function persist() {
   if (storageBlocked) throw Error('本机存储不可用。请先导出备份，再从设置恢复数据。');
@@ -74,16 +76,18 @@ const matches = (...texts) => !query || texts.some(t => String(t || '').toLocale
 const goalFor = id => state.goals.find(g => g.id === id);
 const sortedTasks = tasks => [...tasks].sort((a,b) => sort === 'priority' ? b.priority - a.priority || a.time.localeCompare(b.time) : (a.time || '99:99').localeCompare(b.time || '99:99') || b.priority - a.priority);
 function dateLabel(date, withYear = false) {const d = new Date(date + 'T00:00:00Z'); return `${withYear ? d.getUTCFullYear() + '年 ' : ''}${d.getUTCMonth()+1}月 ${d.getUTCDate()}日` + (withYear ? ` · 星期${'日一二三四五六'[d.getUTCDay()]}` : '');}
-function switchPage(next, goal = '') {
+async function switchPage(next, goal = '') {
+  if(page==='journal'&&next!=='journal'&&!await journal.leave())return;
   const returningHome = next === 'today' && (page !== 'today' || selectedDate !== bjDate());
   page = next; selectedGoal = goal;
   if (returningHome) {selectedDate = bjDate(); petHidden = false;}
   if (next === 'today' && !goal && !returningHome) petHidden = false;
   closeNav(); $('#search').value = ''; query = ''; petStreak = 0; render(); updatePet(false);
-  history.replaceState(null, '', next === 'goals' ? '#goals' : '#today');
+  history.replaceState(null, '', next === 'goals' ? '#goals' : next==='journal'?'#journal':'#today');
 }
-function chooseDate(date) {
+async function chooseDate(date) {
   if (!validDate(date)) return;
+  if(page==='journal'){await journal.go(date);return;}
   page = 'today'; selectedGoal = ''; selectedDate = date;
   if (date === bjDate()) petHidden = false;
   month = date.slice(0,7); year = Number(date.slice(0,4)); closeNav(); render(); updatePet(false);
@@ -94,12 +98,16 @@ function render() {
   $('#goals-count').textContent = state.goals.filter(g => !g.done).length;
   $$('.nav-item').forEach(e => e.classList.toggle('active', e.dataset.view === page));
   $('#week-strip').hidden = page !== 'today'; $('#return-today').hidden = page !== 'today';
+  const writing=page==='journal';$('#journal-host').hidden=!writing;$('#content').hidden=writing;
+  $('.search-field').hidden=writing;$('#return-today').hidden=page==='goals';
+  document.body.classList.toggle('journal-page',writing);
   if (page === 'today') {
     $('#view-title').textContent = selectedDate === bjDate() ? '我的一天' : dateLabel(selectedDate);
     $('#view-tag').textContent = selectedDate === bjDate() ? 'TODAY' : 'DAY BY DAY';
     $('#view-description').textContent = query ? `查找“${$('#search').value}” · 所有日期` : '把重要的事，放进今天。';
     renderWeek(); renderTasks();
-  } else if (selectedGoal && goalFor(selectedGoal)) renderGoalDetail();
+  } else if(writing){$('#view-title').textContent='每日手记';$('#view-tag').textContent='JOURNAL';$('#view-description').textContent='把文字与照片，留在同一页。';journal.show(selectedDate).catch(e=>toast(e.message));}
+  else if (selectedGoal && goalFor(selectedGoal)) renderGoalDetail();
   else {selectedGoal = ''; renderGoals();}
   document.body.classList.toggle('sidebar-collapsed', !state.settings.sidebarOpen);
   $('#sidebar-toggle-label').textContent = state.settings.sidebarOpen ? '收起右栏' : '展开右栏';
@@ -107,7 +115,7 @@ function render() {
   $$('.right-tabs button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === tab)));
   for (const name of ['focus','calendar','companion']) $('#panel-' + name).hidden = tab !== name;
   renderUpcoming(); renderCalendar(); renderProgress(); renderStats(); renderFocusAgenda(); renderPetVisibility(); tickView();
-  $('#content-hint').textContent = state.tasks.some(t => t.example) ? '只有一条示例任务，可在设置中清除。' : '做一件小事，也是在好好生活。';
+  $('#content-hint').textContent = writing?'日记与照片仅保存在本机，请定期导出备份。':state.tasks.some(t => t.example) ? '只有一条示例任务，可在设置中清除。' : '做一件小事，也是在好好生活。';
 }
 function renderWeek() {
   const monday = addDays(selectedDate, -weekday(selectedDate));
@@ -158,6 +166,14 @@ function renderStats() {
   $('#pie-empty').hidden=!!slices.length; $('#focus-pie').setAttribute('aria-label',slices.length?slices.map(p=>p.name+' '+duration(p.ms)).join('；'):'今日还没有专注记录');
   $('#stats-total').textContent='共 '+(total?duration(total):'0 分钟');
   $('#pie-legend').innerHTML=slices.map(p=>`<div class="legend-row"><i style="background:${p.color}"></i><span class="legend-name" title="${html(p.name)}">${html(p.name)}</span><span>${Math.round(p.ms/total*100)}% · ${html(duration(p.ms))}</span></div>`).join('');
+  if($('#stats-dialog').open)renderStatsDetail(slices,total,stops);
+}
+function renderStatsDetail(slices=statistics(state),total=slices.reduce((n,p)=>n+p.ms,0),stops=null){
+  let position=0;const gradient=stops||slices.map(p=>{const start=position;position+=p.ms/total*100;return `${p.color} ${start}% ${position}%`;});
+  $('#detail-pie').style.background=total?`conic-gradient(${gradient.join(',')})`:'#edf2e8';$('#detail-pie').textContent=total?'':'今日暂无完成整轮';$('#detail-total').textContent=total?duration(total):'0 分钟';
+  $('#detail-period').textContent=$('#stats-period').textContent;
+  const start=dayStart(),days=Array.from({length:7},(_,i)=>{const at=start-(6-i)*DAY,ms=statistics(state,at).reduce((n,p)=>n+p.ms,0);return {at,ms};}),max=Math.max(60000,...days.map(d=>d.ms));
+  $('#week-bars').innerHTML=days.map(d=>`<div class="stats-bar-day"><small>${d.ms?html(duration(d.ms)):'0 分'}</small><div class="stats-bar-track"><i style="height:${d.ms/max*100}%"></i></div><span>${bjDate(d.at).slice(5).replace('-','/')}</span></div>`).join('');
 }
 function monthCells(value, mini=false) {
   const first=value+'-01', start=addDays(first,-weekday(first));
@@ -295,16 +311,23 @@ $('#toast-undo').onclick=()=>{
   mutate(()=>{state.tasks=previous.tasks;state.goals=previous.goals;for(const [id,goalId]of previous.projectGoals){const p=state.focus.projects.find(x=>x.id===id);if(p)p.goalId=goalId;}},'已撤销。',false,true);
 };
 async function exportBackup() {
+  try{
   refreshFromDisk();capture(state,Date.now());if(!storageBlocked){try{persist();}catch{}}
   const backup=clone(state);backup.focus.session=null;backup.exportedAt=new Date().toISOString();
-  const blob=new Blob([JSON.stringify(backup,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`拾日-完整备份-${bjDate()}.json`;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);toast('已生成完整备份，请将文件保存在安全的位置。');
+  backup.journal=await journal.backup();
+  const blob=new Blob([JSON.stringify(backup,null,2)],{type:'application/json'});if(blob.size>200*1024*1024)throw Error('完整备份超过 200 MB，请分篇导出图文 HTML。');const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`拾日-完整备份-${bjDate()}.json`;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);toast('已生成完整备份，请将文件保存在安全的位置。');
+  }catch(error){toast('备份未导出：'+error.message);}
 }
 $('#import-file').onchange=async e=>{
   const file=e.target.files[0];e.target.value='';if(!file)return;
   try {
-    if(file.size>32*1024*1024)throw Error('文件超过 32 MB。');
-    const imported=parseBackup(await file.text());
+    if(file.size>200*1024*1024)throw Error('文件超过 200 MB，请分篇导出手记。');
+    const text=await file.text(),raw=JSON.parse(text.replace(/^\uFEFF/,''));
+    if(Array.isArray(raw.Entries)){await journal.importLegacy(raw);return;}
+    const imported=parseBackup(text);
     if(!await confirmAction('合并这份备份？',imported.type==='focus'?`将合并 ${imported.state.focus.segments.length} 条专注时段；原有记录保留。`:`将合并 ${imported.state.tasks.length} 条日程、${imported.state.goals.length} 个远方计划${imported.type==='web'?'及专注记录':''}。同编号记录保留当前版本。`))return;
+    if(raw.journal)await journal.restoreBackup(raw.journal);
+    delete imported.state.journal;
     if(storageBlocked){validate(imported.state);state=imported.state;storageBlocked=false;persist();render();updatePet(false);toast('已从备份恢复。');}
     else mutate(()=>{capture(state,Date.now());state=mergeBackup(state,imported);},'备份已合并，重复记录未再次添加。',false,true);
   } catch(err){toast('导入未完成：'+err.message);}
@@ -330,14 +353,15 @@ function closeNav(){document.body.classList.remove('nav-open');$('#nav-scrim').h
 $('#nav-scrim').onclick=closeNav;
 const actions={
   'new-task':()=>openEditor('task'), 'new-goal':()=>openEditor('goal'), 'edit-goal':()=>openEditor('goal',selectedGoal),
-  'back-goals':()=>switchPage('goals'), 'return-today':()=>{selectedDate=bjDate();petHidden=false;render();updatePet(false);},
+  'back-goals':()=>switchPage('goals'), 'return-today':async()=>{if(page==='journal'){await journal.go(bjDate());return;}selectedDate=bjDate();petHidden=false;render();updatePet(false);},
+  'open-stats':()=>{renderStatsDetail();$('#stats-dialog').showModal();closeNav();},
   'sort':()=>{sort=sort==='time'?'priority':'time';renderTasks();},
   'settings':()=>openSettings(), 'backup':()=>openSettings(true),
   'close-dialog':e=>e.closest('dialog')?.close(),
   'toggle-sidebar':()=>mutate(()=>state.settings.sidebarOpen=!state.settings.sidebarOpen),
   'focus-settings':()=>openEditor('focus'),
   'toggle-focus':()=>{unlockAudio();mutate(()=>toggleFocus(state));updatePet(false);},
-  'reset-focus':async()=>{if(state.focus.session?.running&&!await confirmAction('重新准备这一轮？','已专注的时间会保留，本轮倒计时回到起点。'))return;mutate(()=>resetFocus(state),'已保留专注记录，重新准备。');updatePet(false);},
+  'reset-focus':async()=>{if((state.focus.session?.running||state.focus.session?.pending?.length)&&!await confirmAction('重新准备这一轮？','提前结束不计入统计，本轮倒计时回到起点。已完成的历史记录保留。'))return;mutate(()=>resetFocus(state),'已重新准备；未完成整轮不计入统计。');updatePet(false);},
   'start-break':()=>{unlockAudio();mutate(()=>{if(state.focus.session?.phase==='break')resetFocus(state);else startBreak(state);});updatePet(false);},
   'expand-focus':openFocus,'close-focus':closeFocus,'fullscreen':fullscreen,
   'prev-month':()=>{const d=new Date(month+'-01T00:00:00Z');d.setUTCMonth(d.getUTCMonth()-1);month=d.toISOString().slice(0,7);year=d.getUTCFullYear();renderCalendar();updatePet(false);},
@@ -381,7 +405,7 @@ document.addEventListener('keydown',async e=>{
   if(e.code==='Space'&&focusOpen&&!input&&!$$('dialog[open]').length){e.preventDefault();if(!e.repeat)actions['toggle-focus']();}
   if(e.key==='Escape'&&!$$('dialog[open]').length){if(focusOpen){e.preventDefault();if(document.fullscreenElement||document.webkitFullscreenElement)await(document.exitFullscreen?.()||document.webkitExitFullscreen?.());else closeFocus();}else closeNav();}
 });
-window.addEventListener('hashchange',()=>switchPage(location.hash==='#goals'?'goals':'today'));
+window.addEventListener('hashchange',()=>switchPage(location.hash==='#goals'?'goals':location.hash==='#journal'?'journal':'today'));
 window.addEventListener('storage',e=>{if(e.key===KEY){refreshFromDisk();undoValue=null;render();updatePet(false);}});
 document.addEventListener('visibilitychange',()=>{
   if(document.hidden){cancelAnimationFrame(petRaf);express(petExpression,false);refreshFromDisk();try{capture(state,Date.now());persist();}catch{}}
@@ -410,11 +434,12 @@ function pulse(fromResume=false) {
     try{persist();lastCheckpoint=now;}catch(e){state=previous;toast(e.message);}
     if(signal){render();updatePet(false);chime();toast(signal==='focus-finished'?'专注完成啦！已经开始休息。':signal==='both-finished'?'专注与休息都结束了，准备好再开始下一轮。':'休息结束啦，准备好再开始下一轮。');}
   }
-  if(bjDate(now)!==lastDay){if(selectedDate===lastDay)selectedDate=bjDate(now);lastDay=bjDate(now);render();updatePet(false);}
+  if(bjDate(now)!==lastDay){if(page!=='journal'&&selectedDate===lastDay)selectedDate=bjDate(now);lastDay=bjDate(now);render();updatePet(false);}
   const due=state.tasks.filter(t=>!t.done&&t.reminder&&!t.reminded&&t.date===bjDate(now)&&t.time&&t.time<=bjTime(now).slice(0,5));
   if(due.length){const ids=new Set(due.map(t=>t.id));mutate(()=>state.tasks.forEach(t=>{if(ids.has(t.id))t.reminded=true;}));chime();toast('日程提醒：'+due.slice(0,3).map(t=>t.title).join('；'));updatePet(false);}
   tickView();
 }
 if(location.hash==='#goals')page='goals';
+if(location.hash==='#journal')page='journal';
 if(!storageBlocked){try{const signal=reconcile(state);if(signal)toast('已按实际时间恢复计时；完成的专注已记录。');if(!initialRaw||signal)persist();}catch(e){toast(e.message);}}
 render();loadPet();setupOffline();setInterval(pulse,250);
